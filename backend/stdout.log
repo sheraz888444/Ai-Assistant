@@ -1,0 +1,3 @@
+[dotenv@17.2.1] injecting env (5) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+Server is running on port 5000
+MongoDB connected successfully
