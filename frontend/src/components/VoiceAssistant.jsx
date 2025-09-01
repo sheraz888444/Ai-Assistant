@@ -11,7 +11,18 @@ const VoiceAssistant = () => {
   const recognitionRef = useRef(null);
   const finalBufferRef = useRef('');
   const [language, setLanguage] = useState('en-US');
+  const [hasIntroduced, setHasIntroduced] = useState(false);
+  const [selectedVoice, setSelectedVoice] = useState(null);
   const navigate = useNavigate();
+
+  // Introduction effect: Introduce once when user data is available
+  useEffect(() => {
+    if (user?.assistantName && user?.name && !hasIntroduced && selectedVoice) {
+      const introMessage = `Hello, I am ${user.assistantName}. How can I help you ${user.name}?`;
+      speak(introMessage);
+      setHasIntroduced(true);
+    }
+  }, [user?.assistantName, user?.name, hasIntroduced, selectedVoice]);
 
   // Detect browser language
   useEffect(() => {
@@ -56,7 +67,10 @@ const VoiceAssistant = () => {
 
       recog.onerror = (event) => {
         console.error('Speech recognition error:', event.error);
-        setIsListening(false);
+        // Don't stop listening on 'aborted' as it's normal when stopping
+        if (event.error !== 'aborted') {
+          setIsListening(false);
+        }
       };
 
       recog.onend = () => {
@@ -82,6 +96,48 @@ const VoiceAssistant = () => {
       }
     };
   }, [language, isListening]);
+
+  // Select voice based on assistant name
+  useEffect(() => {
+    const selectVoice = () => {
+      if ('speechSynthesis' in window && user?.assistantName) {
+        const voices = window.speechSynthesis.getVoices();
+        const assistantName = user.assistantName.toLowerCase();
+        const isFemale = isFemaleName(assistantName);
+        let selected = null;
+
+        // Prefer female voices for female names
+        if (isFemale) {
+          selected = voices.find(voice => voice.name.toLowerCase().includes('female') || voice.name.toLowerCase().includes('woman') || voice.name.toLowerCase().includes('girl')) ||
+                     voices.find(voice => voice.name.toLowerCase().includes('zira') || voice.name.toLowerCase().includes('hazel') || voice.name.toLowerCase().includes('susan'));
+        }
+
+        // Fallback to any English voice
+        if (!selected) {
+          selected = voices.find(voice => voice.lang.startsWith('en'));
+        }
+
+        // Fallback to first available voice
+        if (!selected && voices.length > 0) {
+          selected = voices[0];
+        }
+
+        setSelectedVoice(selected);
+      }
+    };
+
+    selectVoice();
+    // Listen for voices to be loaded
+    window.speechSynthesis.onvoiceschanged = selectVoice;
+  }, [user?.assistantName]);
+
+  // Function to detect if name is female
+  const isFemaleName = (name) => {
+    const femaleEndings = ['a', 'i', 'e', 'y'];
+    const femaleNames = ['alice', 'anna', 'bella', 'catherine', 'diana', 'elizabeth', 'fiona', 'grace', 'hannah', 'iris', 'julia', 'kate', 'lily', 'maria', 'nina', 'olivia', 'penny', 'quinn', 'rose', 'sara', 'tina', 'uma', 'violet', 'wendy', 'xena', 'yara', 'zara'];
+    const lowerName = name.toLowerCase();
+    return femaleNames.includes(lowerName) || femaleEndings.some(ending => lowerName.endsWith(ending));
+  };
 
   // Local robust command executor (fallback and speedy path)
   const executeCommand = async (raw) => {
@@ -130,6 +186,7 @@ const VoiceAssistant = () => {
     if (/^open facebook$/.test(t)) { window.open('https://www.facebook.com', '_blank'); response = 'Opening Facebook'; executed = true; return { response, executed }; }
     if (/^open gmail$/.test(t)) { window.open('https://mail.google.com', '_blank'); response = 'Opening Gmail'; executed = true; return { response, executed }; }
     if (/^open github$/.test(t)) { window.open('https://github.com', '_blank'); response = 'Opening GitHub'; executed = true; return { response, executed }; }
+    if (/^open youtube$/.test(t) || /^go to youtube$/.test(t)) { window.open('https://www.youtube.com', '_blank'); response = 'Opening YouTube'; executed = true; return { response, executed }; }
 
     // Internal navigation (app routes)
     {
@@ -265,7 +322,8 @@ const VoiceAssistant = () => {
           const map = {
             facebook: 'https://www.facebook.com',
             gmail: 'https://mail.google.com',
-            github: 'https://github.com'
+            github: 'https://github.com',
+            youtube: 'https://www.youtube.com'
           };
           const siteKey = String(args.site).toLowerCase();
           const url = map[siteKey] || `https://www.google.com/search?q=${encodeURIComponent(args.site)}`;
@@ -351,7 +409,11 @@ const VoiceAssistant = () => {
       /^(reload|refresh)( the)? page$/,
       /^go (back|forward)$/,
       /^say\s+.+/,
-      /^(what('s| is) )?(the )?(time|date)/
+      /^(what('s| is) )?(the )?(time|date)/,
+      /^who are you$/,
+      /^what is your name$/,
+      /^introduce yourself$/,
+      /^tell me about yourself$/
     ];
     if (!triggered && generalPatterns.some(re => re.test(lowerText))) {
       triggered = true;
@@ -378,9 +440,27 @@ const VoiceAssistant = () => {
 
     // Fallback to local patterns
     if (!executed) {
-      const r2 = await executeCommand(commandText);
-      executed = r2.executed;
-      response = r2.response || response;
+      // For common chat questions, call backend chat API
+      if (/^(who are you|what is your name|introduce yourself|tell me about yourself)$/.test(commandText)) {
+        try {
+          const chatRes = await axios.post(
+            `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/ai/chat`,
+            { message: commandText, locale: language },
+            { withCredentials: true }
+          );
+          if (chatRes.data?.response) {
+            response = chatRes.data.response;
+            executed = true;
+          }
+        } catch (e) {
+          console.error('Error calling chat API:', e);
+        }
+      }
+      if (!executed) {
+        const r2 = await executeCommand(commandText);
+        executed = r2.executed;
+        response = r2.response || response;
+      }
     }
 
     if (executed) {
@@ -406,6 +486,9 @@ const VoiceAssistant = () => {
       utterance.lang = language;
       utterance.rate = 0.9;
       utterance.pitch = 1.0;
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
+      }
       window.speechSynthesis.speak(utterance);
     }
   };

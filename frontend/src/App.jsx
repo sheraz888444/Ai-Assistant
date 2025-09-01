@@ -17,8 +17,7 @@ function App() {
       <Route path="/signup" element={<Signup />} />
       <Route path="/" element={<ProtectedRoute><Homepage /></ProtectedRoute>} />
       <Route path="/setup" element={<ProtectedRoute><SetupProfile /></ProtectedRoute>} />
-      <Route path="/customize-name" element={<ProtectedRoute><SetupProfile /></ProtectedRoute>} />
-
+      {/* Removed customize-name route as SetupProfile handles setup */}
       {/* Backward compatibility for old links/bookmarks */}
       <Route path="/customize" element={<Navigate to="/setup" replace />} />
       <Route path="/customise" element={<Navigate to="/setup" replace />} />
