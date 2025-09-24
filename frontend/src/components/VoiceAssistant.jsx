@@ -59,18 +59,20 @@ const VoiceAssistant = () => {
         // Accumulate finalized chunks for whole-instruction execution
         if (final) {
           finalBufferRef.current = `${(finalBufferRef.current || '').trim()} ${final}`.trim();
+          // Process immediately for faster response
+          checkForCommand(finalBufferRef.current);
+          finalBufferRef.current = '';
         }
         // Show interim while speaking; else show what we have finalized
         setTranscript(interim || finalBufferRef.current);
-        // Do not execute here; wait for onend (silence) to process the whole phrase
       };
 
       recog.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
-        // Don't stop listening on 'aborted' as it's normal when stopping
         if (event.error !== 'aborted') {
+          console.error('Speech recognition error:', event.error);
           setIsListening(false);
         }
+        // 'aborted' is normal, no need to log or stop
       };
 
       recog.onend = () => {

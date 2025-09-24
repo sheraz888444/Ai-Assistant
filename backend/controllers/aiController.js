@@ -21,6 +21,8 @@ export const interpretCommand = async (req, res) => {
 
     const openaiApiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_APIKEY || process.env.OPENAI_KEY;
     const googleApiKey = process.env.GOOGLE_API_KEY || process.env.GOOGLE_APIKEY;
+    const rapidApiKey = process.env.RAPIDAPI_KEY;
+    const rapidApiHost = process.env.RAPIDAPI_HOST;
     const googleApiModel = 'models/chat-bison-001';
 
     if (!openaiApiKey && !googleApiKey) {
@@ -136,6 +138,41 @@ Return ONLY a JSON object with fields { "action": string, "args": object }.
         parsed = { action: 'open_search', args: { engine: 'google', query: text } };
       }
       raw = { engine: 'gemini', model: 'gemini-1.5-flash' };
+    } else if (rapidApiKey && rapidApiHost) {
+      // Use RapidAPI Robomatic AI
+      try {
+        const rapidApiResponse = await fetch(`https://${rapidApiHost}/api`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-RapidAPI-Key': rapidApiKey,
+            'X-RapidAPI-Host': rapidApiHost
+          },
+          body: JSON.stringify({
+            text: text,
+            locale: locale
+          })
+        });
+
+        if (rapidApiResponse.ok) {
+          const data = await rapidApiResponse.json();
+          // Assuming the API returns a similar structure to our expected format
+          // You may need to adjust this based on the actual RapidAPI response format
+          if (data.action) {
+            parsed = data;
+          } else {
+            // If the response format is different, try to parse it
+            parsed = { action: 'open_search', args: { engine: 'google', query: text } };
+          }
+          raw = { engine: 'rapidapi', model: 'robomatic-ai' };
+        } else {
+          throw new Error('RapidAPI request failed');
+        }
+      } catch (error) {
+        console.error('RapidAPI error:', error);
+        parsed = { action: 'open_search', args: { engine: 'google', query: text } };
+        raw = { engine: 'rapidapi-error', model: 'robomatic-ai' };
+      }
     }
 
     // Minimal validation
@@ -238,9 +275,11 @@ export const generalChat = async (req, res) => {
 
     const openaiApiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_APIKEY || process.env.OPENAI_KEY;
     const googleApiKey = process.env.GOOGLE_API_KEY || process.env.GOOGLE_APIKEY;
+    const rapidApiKey = process.env.RAPIDAPI_KEY;
+    const rapidApiHost = process.env.RAPIDAPI_HOST;
 
-    if (!openaiApiKey && !googleApiKey) {
-      return res.status(500).json({ error: 'No API key configured for OpenAI or Google Gemini' });
+    if (!openaiApiKey && !googleApiKey && !rapidApiKey) {
+      return res.status(500).json({ error: 'No API key configured for OpenAI, Google Gemini, or RapidAPI' });
     }
 
     let response = '';
@@ -289,6 +328,34 @@ User message: ${message}
 
       const geminiResponse = await result.response;
       response = geminiResponse.text() || 'Sorry, I could not generate a response.';
+    } else if (rapidApiKey && rapidApiHost) {
+      // Use RapidAPI Robomatic AI for general chat
+      try {
+        const rapidApiResponse = await fetch(`https://${rapidApiHost}/api`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-RapidAPI-Key': rapidApiKey,
+            'X-RapidAPI-Host': rapidApiHost
+          },
+          body: JSON.stringify({
+            message: message,
+            locale: locale
+          })
+        });
+
+        if (rapidApiResponse.ok) {
+          const data = await rapidApiResponse.json();
+          // Assuming the API returns a response field
+          // You may need to adjust this based on the actual RapidAPI response format
+          response = data.response || data.message || 'Sorry, I could not generate a response.';
+        } else {
+          throw new Error('RapidAPI request failed');
+        }
+      } catch (error) {
+        console.error('RapidAPI chat error:', error);
+        response = 'Sorry, I could not generate a response.';
+      }
     }
 
     return res.status(200).json({ response });
